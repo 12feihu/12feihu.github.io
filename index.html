@@ -157,6 +157,15 @@ h1, h2, h3, .label { font-family: 'Oswald', sans-serif; text-transform: uppercas
   font-size: 0.85rem;
 }
 .game-header .round-info { color: var(--text-dim); }
+.game-header .room-code-header {
+  font-family: 'Oswald', sans-serif;
+  letter-spacing: 4px;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.game-header .room-code-header:hover { opacity: 1; }
 .game-header .czar-info { color: var(--gold); font-weight: 700; }
 
 .black-card {
@@ -1008,6 +1017,7 @@ h1, h2, h3, .label { font-family: 'Oswald', sans-serif; text-transform: uppercas
 <div class="screen" id="game">
   <div class="game-header">
     <span class="round-info" id="roundInfo">Round 1</span>
+    <span class="room-code-header" id="headerCode" onclick="copyRoomCode()" title="Click to copy">—</span>
     <span class="czar-info" id="czarInfo">👑 Czar: ???</span>
   </div>
 
@@ -2385,6 +2395,7 @@ function renderGame() {
   const pick = currentPickCount || getPickCount(gameState.blackCard);
 
   document.getElementById('roundInfo').textContent = `Round ${gameState.round}`;
+  document.getElementById('headerCode').textContent = roomCode || '—';
   document.getElementById('czarInfo').textContent = `👑 Czar: ${czar}`;
   document.getElementById('blackCardText').textContent = gameState.blackCard;
 
