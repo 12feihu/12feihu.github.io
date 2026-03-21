@@ -365,6 +365,26 @@ h1, h2, h3, .label { font-family: 'Oswald', sans-serif; text-transform: uppercas
 }
 .hand-card:hover { transform: translateY(-8px); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
 .hand-card.selected { border-color: var(--accent); transform: translateY(-8px); box-shadow: 0 4px 20px var(--accent-glow); }
+.hand-card img {
+  max-width: 100%;
+  max-height: 80px;
+  border-radius: 4px;
+  object-fit: contain;
+  display: block;
+}
+.hand-card.image-card {
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.black-card img.black-card-img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  object-fit: contain;
+}
 
 .custom-input-row {
   display: flex;
@@ -978,8 +998,11 @@ h1, h2, h3, .label { font-family: 'Oswald', sans-serif; text-transform: uppercas
   <details style="width:100%;font-size:0.75rem;color:var(--text-dim);cursor:pointer;">
     <summary style="text-align:center;padding:4px;">Import format guide</summary>
     <div style="background:var(--surface);border-radius:8px;padding:12px;margin-top:6px;line-height:1.6;">
-      <strong style="color:var(--text);">JSON:</strong> <code>{"name":"My Deck", "black":["Prompt ____.", ...], "white":["Response", ...]}</code><br>
+      <strong style="color:var(--text);">JSON (text cards):</strong> <code>{"name":"My Deck", "black":["Prompt ____.", ...], "white":["Response", ...]}</code><br>
       Also accepts: <code>blackCards/prompts</code> and <code>whiteCards/responses</code> as key names. Can be an array of decks.<br><br>
+      <strong style="color:var(--text);">JSON (image cards):</strong> Mix strings and objects in the arrays:<br>
+      <code>"white": ["Text card", {"content":"https://img.url/pic.jpg", "type":"image"}]</code><br>
+      For image prompts: <code>"black": [{"content":"https://...", "type":"image", "pick":1}]</code><br><br>
       <strong style="color:var(--text);">CSV:</strong> Two columns — <code>type</code> (black/white) and <code>text</code>. Or single column where lines with <code>____</code> become black cards, rest become white.<br>
       Tab-separated (TSV) also supported.
     </div>
@@ -996,12 +1019,22 @@ h1, h2, h3, .label { font-family: 'Oswald', sans-serif; text-transform: uppercas
         <button class="tab-btn" onclick="switchAddTab('white', this)">White Cards (Responses)</button>
       </div>
       <div id="addBlackTab">
-        <textarea class="input" id="newBlackCards" placeholder="One prompt per line. Use ____ for the blank.&#10;&#10;Example:&#10;The secret to success is ____.&#10;What keeps me up at night? ____."></textarea>
-        <p class="hint">One black card per line</p>
+        <textarea class="input" id="newBlackCards" placeholder="One text prompt per line. Use ____ for the blank.&#10;&#10;Example:&#10;The secret to success is ____.&#10;What keeps me up at night? ____."></textarea>
+        <p class="hint">One black card per line (text prompts)</p>
+        <details style="margin-top:6px;">
+          <summary style="font-size:0.8rem;color:var(--text-dim);cursor:pointer;">Add image prompts</summary>
+          <textarea class="input" id="newBlackImages" placeholder="One image URL per line.&#10;&#10;These become image-based prompt cards.&#10;Default pick count: 1" style="margin-top:6px;min-height:60px;"></textarea>
+          <p class="hint">One image URL per line — each becomes a Pick 1 black card</p>
+        </details>
       </div>
       <div id="addWhiteTab" style="display:none;">
         <textarea class="input" id="newWhiteCards" placeholder="One response per line.&#10;&#10;Example:&#10;A suspicious amount of cheese&#10;Existential dread"></textarea>
-        <p class="hint">One white card per line</p>
+        <p class="hint">One white card per line (text responses)</p>
+        <details style="margin-top:6px;">
+          <summary style="font-size:0.8rem;color:var(--text-dim);cursor:pointer;">Add image responses</summary>
+          <textarea class="input" id="newWhiteImages" placeholder="One image URL per line.&#10;&#10;These become image response cards in players' hands." style="margin-top:6px;min-height:60px;"></textarea>
+          <p class="hint">One image URL per line — each becomes a response card</p>
+        </details>
       </div>
       <div class="form-row" style="justify-content:flex-end;gap:8px;">
         <button class="btn small" onclick="toggleAddPanel()">Cancel</button>
@@ -1246,13 +1279,18 @@ function renderDeckList() {
 
   decks.forEach(d => {
     const isOn = enabled.has(d.id);
+    const bImgCount = (d.black||[]).filter(c => typeof c === 'object' && c.type === 'image').length;
+    const wImgCount = (d.white||[]).filter(c => typeof c === 'object' && c.type === 'image').length;
+    const bTotal = (d.black||[]).length;
+    const wTotal = (d.white||[]).length;
+    const imgNote = (bImgCount + wImgCount) > 0 ? ` (${bImgCount + wImgCount} 📷)` : '';
     const item = document.createElement('div');
     item.className = `deck-item ${isOn ? 'enabled' : ''}`;
     item.innerHTML = `
       <button class="deck-toggle" onclick="toggleDeck('${d.id}')">${isOn ? '✓' : ''}</button>
       <div class="deck-info">
         <div class="deck-name">${d.name}</div>
-        <div class="deck-counts">${(d.black||[]).length} black · ${(d.white||[]).length} white</div>
+        <div class="deck-counts">${bTotal} black · ${wTotal} white${imgNote}</div>
       </div>
       <div class="deck-actions">
         <button onclick="exportDeck('${d.id}')">Export</button>
@@ -1319,8 +1357,20 @@ function importJSON(text) {
 
     imports.forEach(d => {
       const name = (d.name || 'Imported Deck').substring(0, 50);
-      const black = (d.black || d.blackCards || d.prompts || []).filter(c => typeof c === 'string' && c.trim());
-      const white = (d.white || d.whiteCards || d.responses || []).filter(c => typeof c === 'string' && c.trim());
+      const rawBlack = d.black || d.blackCards || d.prompts || [];
+      const rawWhite = d.white || d.whiteCards || d.responses || [];
+
+      // Accept strings and {content, type} objects
+      const black = rawBlack.filter(c => {
+        if (typeof c === 'string') return c.trim();
+        if (c && c.content) return true;
+        return false;
+      });
+      const white = rawWhite.filter(c => {
+        if (typeof c === 'string') return c.trim();
+        if (c && c.content) return true;
+        return false;
+      });
 
       if (black.length === 0 && white.length === 0) return;
 
@@ -1464,6 +1514,8 @@ function toggleAddPanel() {
     document.getElementById('newDeckName').value = '';
     document.getElementById('newBlackCards').value = '';
     document.getElementById('newWhiteCards').value = '';
+    document.getElementById('newBlackImages').value = '';
+    document.getElementById('newWhiteImages').value = '';
     document.getElementById('newDeckName').focus();
   }
 }
@@ -1480,10 +1532,22 @@ function saveNewDeck() {
   const name = document.getElementById('newDeckName').value.trim();
   if (!name) { toast('Enter a deck name!', 'error'); return; }
 
-  const black = document.getElementById('newBlackCards').value
+  // Text cards (plain strings for backward compat)
+  const blackText = document.getElementById('newBlackCards').value
     .split('\n').map(l => l.trim()).filter(Boolean);
-  const white = document.getElementById('newWhiteCards').value
+  const whiteText = document.getElementById('newWhiteCards').value
     .split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Image cards (stored as objects)
+  const blackImgs = document.getElementById('newBlackImages').value
+    .split('\n').map(l => l.trim()).filter(Boolean)
+    .map(url => ({ content: url, type: 'image', pick: 1 }));
+  const whiteImgs = document.getElementById('newWhiteImages').value
+    .split('\n').map(l => l.trim()).filter(Boolean)
+    .map(url => ({ content: url, type: 'image' }));
+
+  const black = [...blackText, ...blackImgs];
+  const white = [...whiteText, ...whiteImgs];
 
   if (black.length === 0 && white.length === 0) {
     toast('Add at least one card!', 'error');
@@ -1502,7 +1566,8 @@ function saveNewDeck() {
 
   toggleAddPanel();
   renderDeckList();
-  toast(`"${name}" saved with ${black.length} black + ${white.length} white cards`, 'success');
+  const imgCount = blackImgs.length + whiteImgs.length;
+  toast(`"${name}" saved with ${black.length} black + ${white.length} white cards${imgCount ? ` (${imgCount} images)` : ''}`, 'success');
 }
 
 // ═══════════════════════════════════════
@@ -1519,6 +1584,15 @@ let playerConns = {}; // host's connections {name: conn}
 let hostGameName = '';    // name shown in server list
 let hostPassword = '';    // empty = no password
 let pendingJoinCode = ''; // server browser: code waiting for password
+
+// ── Reliability / Sync ──
+let stateVersion = 0;           // host: increments on every broadcastState
+let lastReceivedVersion = -1;   // client: last version we rendered
+let lastStateTime = 0;          // client: timestamp of last received state
+let resyncInterval = null;      // host: periodic resync timer
+let stalenessInterval = null;   // client: staleness checker
+const RESYNC_MS = 3000;         // host resyncs every 3s
+const STALE_MS = 10000;         // client requests resync after 10s silence
 
 // Game state (host-authoritative)
 let gameState = {
@@ -1595,13 +1669,29 @@ function shuffle(arr) {
 }
 
 function getPickCount(blackCard) {
-  if (!blackCard) return 1;
-  // Match both single _ and multi ____ blank styles
-  // Use word boundary / space / punctuation context to detect standalone blanks
-  const matches = blackCard.match(/(?:^|[\s"(])(_+)(?=[\s.,!?;:)"']|$)/g);
+  const c = normalizeCard(blackCard);
+  if (c.pick) return c.pick; // explicit pick count on card object
+  if (c.type === 'image') return 1; // image prompts default to pick 1
+  if (!c.content) return 1;
+  const matches = c.content.match(/(?:^|[\s"(])(_+)(?=[\s.,!?;:)"']|$)/g);
   const count = matches ? matches.length : 0;
   return Math.max(1, count);
 }
+
+// Normalize a card from any format to {content, type, pick?}
+function normalizeCard(c) {
+  if (!c) return { content: '', type: 'text' };
+  if (typeof c === 'string') return { content: c, type: 'text' };
+  return {
+    content: c.content || c.text || c.url || '',
+    type: c.type || 'text',
+    pick: c.pick || undefined
+  };
+}
+
+// Get display content for a card (text string or image URL)
+function cardContent(c) { return normalizeCard(c).content; }
+function cardType(c) { return normalizeCard(c).type; }
 
 // Renders parts array into a DOM container
 function renderPartsInto(container, parts, options = {}) {
@@ -1709,9 +1799,12 @@ function goMenu() {
   showScreen('menu');
   isSolo = false; isSpectating = false; allowMultiPick = true;
   hostGameName = ''; hostPassword = ''; pendingJoinCode = '';
+  stateVersion = 0; lastReceivedVersion = -1;
   document.getElementById('allowMultiPick').checked = true;
   document.getElementById('joinPasswordOverlay').classList.remove('active');
   lastCzarBannerRound = -1;
+  stopHostResync();
+  stopStalenessChecker();
   unregisterFromDirectory();
   if (browsePeer) { try { browsePeer.destroy(); } catch(e) {} browsePeer = null; }
   if (peer) { peer.destroy(); peer = null; }
@@ -1818,7 +1911,8 @@ function soloScheduleBots() {
           if (available.length === 0) break;
           const cardIdx = available[Math.floor(Math.random() * available.length)];
           usedIndices.push(cardIdx);
-          parts.push({ content: hand[cardIdx], type: 'text' });
+          const bc = normalizeCard(hand[cardIdx]);
+          parts.push({ content: bc.content, type: bc.type });
         }
 
         // Remove used cards (descending order)
@@ -1879,6 +1973,7 @@ function createHost() {
 
     showLobby();
     setConnStatus(true);
+    startHostResync();
 
     // Register with game directory for server browser
     initDirectory();
@@ -2035,7 +2130,7 @@ function handleHostMessage(conn, data) {
         conn.send({ type: 'HAND_UPDATE', hand: gameState.hands[pName] });
       }
 
-      broadcastState();
+      broadcastState(true); // critical: new submission
       checkAllSubmitted();
       break;
     }
@@ -2045,6 +2140,15 @@ function handleHostMessage(conn, data) {
       const picker = Object.keys(playerConns).find(k => playerConns[k] === conn);
       if (picker !== czarName && czarName !== myName) return; // only czar
       resolveRound(data.index);
+      break;
+    }
+    case 'RESYNC_REQUEST': {
+      // Client hasn't heard from us — send full state
+      resyncClient(conn);
+      break;
+    }
+    case 'PING': {
+      try { conn.send({ type: 'PONG' }); } catch(e) {}
       break;
     }
   }
@@ -2095,9 +2199,10 @@ function handlePlayerDisconnect(conn) {
   else renderGame();
 }
 
-function broadcastState() {
+function buildPublicState() {
   const publicState = {
     type: 'STATE',
+    v: stateVersion,
     phase: gameState.phase,
     players: gameState.players,
     czarIndex: gameState.czarIndex,
@@ -2120,16 +2225,71 @@ function broadcastState() {
     const active = getActiveCards();
     publicState._deckInfo = { names: deckNames, blackCount: active.black.length, whiteCount: active.white.length, multiPick: document.getElementById('allowMultiPick').checked };
   }
+  return publicState;
+}
 
+function sendToAll(msg) {
   Object.values(playerConns).forEach(c => {
-    try { c.send(publicState); } catch(e) {}
+    try { if (c.open) c.send(msg); } catch(e) {}
   });
+}
+
+function broadcastState(critical) {
+  stateVersion++;
+  const publicState = buildPublicState();
+
+  sendToAll(publicState);
+
+  // Critical changes (phase transitions, new submissions) get retried
+  if (critical) {
+    setTimeout(() => sendToAll(buildPublicState()), 200);
+    setTimeout(() => sendToAll(buildPublicState()), 600);
+  }
 
   // Also update host's own view
   if (isHost) renderFromState(publicState);
 
   // Trigger bot actions in solo mode
   if (isSolo) soloScheduleBots();
+}
+
+// Send full state to a single client
+function resyncClient(conn) {
+  const publicState = buildPublicState();
+  try { if (conn.open) conn.send(publicState); } catch(e) {}
+}
+
+// Host: periodic resync heartbeat
+function startHostResync() {
+  if (resyncInterval) clearInterval(resyncInterval);
+  resyncInterval = setInterval(() => {
+    if (!isHost || isSolo) return;
+    // Lightweight resync — rebroadcast current state
+    const publicState = buildPublicState();
+    sendToAll(publicState);
+  }, RESYNC_MS);
+}
+
+function stopHostResync() {
+  if (resyncInterval) { clearInterval(resyncInterval); resyncInterval = null; }
+}
+
+// Client: detect staleness and request resync
+function startStalenessChecker() {
+  lastStateTime = Date.now();
+  if (stalenessInterval) clearInterval(stalenessInterval);
+  stalenessInterval = setInterval(() => {
+    if (isHost || !hostConn) return;
+    if (Date.now() - lastStateTime > STALE_MS) {
+      // Haven't heard from host in a while — request resync
+      try { if (hostConn.open) hostConn.send({ type: 'RESYNC_REQUEST' }); } catch(e) {}
+      lastStateTime = Date.now(); // don't spam
+    }
+  }, 3000);
+}
+
+function stopStalenessChecker() {
+  if (stalenessInterval) { clearInterval(stalenessInterval); stalenessInterval = null; }
 }
 
 // ═══════════════════════════════════════
@@ -2143,24 +2303,32 @@ function handlePlayerData(data) {
       if (data.deckInfo) gameState._deckInfo = data.deckInfo;
       if (data.gameName) gameState._gameName = data.gameName;
       if (data.midGame) {
-        // Joined mid-game — go straight to game, will spectate until next round
         toast('Joined mid-game! You\'ll play next round.', 'success');
-        hasSubmitted = true; // prevent submitting for current round
+        hasSubmitted = true;
         setConnStatus(true);
       } else {
         showLobby();
         toast('Joined the room!', 'success');
       }
+      startStalenessChecker();
       break;
     case 'ERROR':
       toast(data.msg, 'error');
       break;
     case 'STATE':
+      lastStateTime = Date.now();
+      // Dedup: skip if we've already rendered this version or newer
+      if (data.v != null && data.v <= lastReceivedVersion) return;
+      if (data.v != null) lastReceivedVersion = data.v;
       renderFromState(data);
       break;
     case 'HAND_UPDATE':
       myHand = data.hand;
       renderHand();
+      break;
+    case 'PONG':
+      // Connection alive
+      lastStateTime = Date.now();
       break;
   }
 }
@@ -2252,7 +2420,7 @@ function startGame() {
   gameState.submissions = [];
   gameState.midRoundJoiners = new Set();
   dealBlackCard();
-  broadcastState();
+  broadcastState(true); // critical: game start
 }
 
 function dealBlackCard() {
@@ -2275,7 +2443,7 @@ function checkAllSubmitted() {
     // Shuffle submissions so czar can't guess by order
     gameState.submissions = shuffle(gameState.submissions);
     gameState.phase = 'judging';
-    broadcastState();
+    broadcastState(true); // critical: phase change
   }
 }
 
@@ -2287,7 +2455,7 @@ function resolveRound(winnerIndex) {
 
   gameState.phase = 'results';
   gameState._winnerIndex = winnerIndex;
-  broadcastState();
+  broadcastState(true); // critical: phase change
 
   // Auto-advance after delay
   setTimeout(() => {
@@ -2307,7 +2475,7 @@ function nextRound() {
   selectedHandIndices = [];
   pendingParts = [];
   currentPickCount = getPickCount(gameState.blackCard);
-  broadcastState();
+  broadcastState(true); // critical: new round
 }
 
 // Host picks winner (if host is czar)
@@ -2397,7 +2565,15 @@ function renderGame() {
   document.getElementById('roundInfo').textContent = `Round ${gameState.round}`;
   document.getElementById('headerCode').textContent = roomCode || '—';
   document.getElementById('czarInfo').textContent = `👑 Czar: ${czar}`;
-  document.getElementById('blackCardText').textContent = gameState.blackCard;
+
+  // Render black card (text or image)
+  const bc = normalizeCard(gameState.blackCard);
+  const bcTextEl = document.getElementById('blackCardText');
+  if (bc.type === 'image') {
+    bcTextEl.innerHTML = `<img class="black-card-img" src="${bc.content}" alt="prompt">`;
+  } else {
+    bcTextEl.textContent = bc.content;
+  }
 
   // Show/hide pick badge on black card
   let badge = document.querySelector('.black-card .pick-badge');
@@ -2460,7 +2636,7 @@ function updatePendingDisplay() {
   }
   el.style.display = 'block';
   el.innerHTML = pendingParts.map((p, i) =>
-    `<span style="color:var(--accent);">#${i + 1}:</span> ${p.type === 'image' ? '📷 Image' : p.content.substring(0, 40) + (p.content.length > 40 ? '…' : '')}`
+    `<span style="color:var(--accent);">#${i + 1}:</span> ${p.type === 'image' ? '📷 Image' : (p.content || '').substring(0, 40) + ((p.content || '').length > 40 ? '…' : '')}`
   ).join(' &nbsp;|&nbsp; ') +
     ` &nbsp;<button class="btn small" onclick="undoLastPart()" style="padding:2px 10px;font-size:0.7rem;">Undo</button>`;
 }
@@ -2468,9 +2644,10 @@ function updatePendingDisplay() {
 function undoLastPart() {
   if (pendingParts.length === 0 || hasSubmitted) return;
   const removed = pendingParts.pop();
-  // If it was a hand card, restore it
+  // If it was a hand card, restore the original card
   if (removed._handIndex >= 0) {
-    myHand.splice(removed._handIndex, 0, removed.content);
+    const restore = removed._originalCard !== undefined ? removed._originalCard : removed.content;
+    myHand.splice(removed._handIndex, 0, restore);
     selectedHandIndices = selectedHandIndices.filter(i => i !== removed._handIndex);
   }
   renderGame();
@@ -2557,7 +2734,13 @@ function confirmCzarPick() {
 
 function openImagePreview(src, index, iAmCzar) {
   pendingPickIndex = index;
-  document.getElementById('previewPrompt').textContent = gameState.blackCard;
+  const bc = normalizeCard(gameState.blackCard);
+  const promptEl = document.getElementById('previewPrompt');
+  if (bc.type === 'image') {
+    promptEl.innerHTML = `<img src="${bc.content}" alt="prompt" style="max-width:100%;max-height:80px;border-radius:6px;object-fit:contain;">`;
+  } else {
+    promptEl.textContent = bc.content;
+  }
   document.getElementById('previewImg').src = src;
   document.getElementById('previewSelectBtn').style.display = iAmCzar ? 'inline-block' : 'none';
 
@@ -2622,11 +2805,19 @@ function renderHand() {
   const area = document.getElementById('handCards');
   area.innerHTML = '';
   myHand.forEach((card, i) => {
+    const c = normalizeCard(card);
     const pickOrder = selectedHandIndices.indexOf(i);
     const isSelected = pickOrder >= 0;
     const el = document.createElement('div');
-    el.className = `hand-card ${isSelected ? 'selected' : ''}`;
-    el.textContent = card;
+    el.className = `hand-card ${isSelected ? 'selected' : ''} ${c.type === 'image' ? 'image-card' : ''}`;
+    if (c.type === 'image') {
+      const img = document.createElement('img');
+      img.src = c.content;
+      img.alt = 'card';
+      el.appendChild(img);
+    } else {
+      el.textContent = c.content;
+    }
     if (isSelected) {
       const num = document.createElement('div');
       num.className = 'pick-number';
@@ -2666,11 +2857,10 @@ function selectHandCard(i) {
   if (selectedHandIndices.length === partsNeeded) {
     // Add all selected hand cards as parts and submit
     const indices = [...selectedHandIndices];
-    const parts = indices.map(ci => ({
-      content: myHand[ci],
-      type: 'text',
-      _handIndex: ci
-    }));
+    const parts = indices.map(ci => {
+      const c = normalizeCard(myHand[ci]);
+      return { content: c.content, type: c.type, _handIndex: ci, _originalCard: myHand[ci] };
+    });
     pendingParts.push(...parts);
     selectedHandIndices = [];
     finalizeSubmission();
@@ -2687,8 +2877,10 @@ function submitHandCard(indices) {
   const czar = gameState.players[gameState.czarIndex]?.name;
   if (myName === czar) return;
 
-  // For single-pick, indices is [i]
-  const parts = indices.map(i => ({ content: myHand[i], type: 'text', _handIndex: i }));
+  const parts = indices.map(i => {
+    const c = normalizeCard(myHand[i]);
+    return { content: c.content, type: c.type, _handIndex: i, _originalCard: myHand[i] };
+  });
   pendingParts.push(...parts);
   selectedHandIndices = [];
   finalizeSubmission();
@@ -2729,7 +2921,7 @@ function finalizeSubmission() {
     myHand.push(...dealCards(needed));
     gameState.hands[myName] = myHand;
     gameState.submissions.push({ playerName: myName, parts, type: 'multi' });
-    broadcastState();
+    broadcastState(true); // critical: new submission
     checkAllSubmitted();
   } else {
     hostConn.send({
