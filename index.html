@@ -2224,24 +2224,41 @@ function handlePlayerDisconnect(conn) {
   gameState.submissions = gameState.submissions.filter(s => s.playerName !== name);
 
   const wasIndex = gameState.players.findIndex(p => p.name === name);
+  const wasCzar = wasIndex === gameState.czarIndex && gameState.phase !== 'lobby';
   gameState.players = gameState.players.filter(p => p.name !== name);
 
   if (gameState.players.length === 0) return;
 
-  if (gameState.phase !== 'lobby') {
-    const wasCzar = wasIndex === gameState.czarIndex;
+  toast(`${name} disconnected`, 'error');
 
-    // Adjust czar index if removed player was before or at current czar
+  if (gameState.phase !== 'lobby') {
+    // Adjust czar index
     if (wasIndex < gameState.czarIndex) {
       gameState.czarIndex--;
     } else if (wasCzar) {
-      // Czar disconnected — keep same index (wraps to next player)
       if (gameState.czarIndex >= gameState.players.length) {
         gameState.czarIndex = 0;
       }
     }
-    // Clamp just in case
     gameState.czarIndex = Math.min(gameState.czarIndex, gameState.players.length - 1);
+
+    // If the czar disconnected during playing or judging, skip to next round
+    if (wasCzar && (gameState.phase === 'playing' || gameState.phase === 'judging')) {
+      toast('Czar disconnected — skipping to next round', 'error');
+      // Use current czarIndex as the new czar (already shifted to next player)
+      gameState.submissions = [];
+      gameState.midRoundJoiners = new Set();
+      gameState.phase = 'playing';
+      gameState.round++;
+      dealBlackCard();
+      hasSubmitted = false;
+      selectedHandIndices = [];
+      pendingParts = [];
+      currentPickCount = getPickCount(gameState.blackCard);
+      broadcastState(true);
+      renderGame();
+      return;
+    }
 
     // If we're in playing phase, check if all remaining have submitted
     if (gameState.phase === 'playing') {
@@ -2249,7 +2266,6 @@ function handlePlayerDisconnect(conn) {
     }
   }
 
-  toast(`${name} disconnected`, 'error');
   broadcastState();
   if (gameState.phase === 'lobby') renderLobby();
   else renderGame();
